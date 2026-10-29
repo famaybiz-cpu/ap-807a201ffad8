@@ -25,12 +25,27 @@ function idb() {
   });
 }
 let KEY = null;
-// La portada también manda la clave por mensaje: si el almacén del navegador
-// falla (en iPadOS a veces no guarda), con esto el servicio igual puede servir.
+let esperando = null;          // a quién avisar cuando llegue la clave pedida
+
+/** Pide la clave a las ventanas abiertas: ellas sí la leen del almacén. */
+async function pedirLlaveAlaPagina() {
+  const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  if (!cs.length) return null;
+  const llega = new Promise((ok) => {
+    esperando = ok;
+    setTimeout(() => { if (esperando) { esperando = null; ok(null); } }, 2500);
+  });
+  cs.forEach((c) => c.postMessage({ tipo: 'dameLlave' }));
+  return llega;
+}
+
+// La clave también llega por mensaje: en Safari el servicio no ve lo que la
+// página guardó en el almacén, así que hay que pasársela en mano.
 self.addEventListener('message', (e) => {
   const d = e.data || {};
   if (d.tipo === 'llave' && d.key) {
     KEY = d.key;
+    if (esperando) { esperando(d.key); esperando = null; }
     if (e.ports && e.ports[0]) e.ports[0].postMessage({ ok: true });   // acuse de recibo
   }
   // Prueba desde revisar.html: ¿puede este servicio leer el almacén del
@@ -62,6 +77,7 @@ async function llave() {
       g.onerror = () => ok(null);
     });
   } catch { KEY = null; }
+  if (!KEY) KEY = await pedirLlaveAlaPagina();   // el almacén no la tiene: preguntar
   return KEY;
 }
 async function nombre(path) {

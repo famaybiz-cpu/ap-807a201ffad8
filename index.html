@@ -64,14 +64,17 @@ async function guardarLlave(k){const db=await idb();await new Promise((ok,no)=>{
 async function avisarServicio(k){
   try{
     const reg=await con(navigator.serviceWorker.ready,4000,'avisar al servicio');
-    const sw=reg.active||navigator.serviceWorker.controller;
-    if(!sw)return false;
-    return await new Promise(ok=>{
+    // Puede haber dos: el recién activado y el que todavía controla la página.
+    // Si se le da solo a uno, el otro sigue sin poder descifrar.
+    const destinos=[reg.active,navigator.serviceWorker.controller,reg.waiting].filter(Boolean);
+    if(!destinos.length)return false;
+    const acuses=destinos.map(sw=>new Promise(ok=>{
       const ch=new MessageChannel();
       ch.port1.onmessage=e=>ok(!!(e.data&&e.data.ok));
       setTimeout(()=>ok(false),3000);
-      sw.postMessage({tipo:'llave',key:k},[ch.port2]);
-    });
+      try{sw.postMessage({tipo:'llave',key:k},[ch.port2])}catch(e){ok(false)}
+    }));
+    return (await Promise.all(acuses)).some(Boolean);
   }catch(e){return false}
 }
 async function leerLlave(){try{const db=await idb();return await new Promise(ok=>{const g=db.transaction('k').objectStore('k').get('llave');g.onsuccess=()=>ok(g.result||null);g.onerror=()=>ok(null)})}catch(e){return null}}
@@ -108,6 +111,12 @@ async function entrar(meta){
       if(d&&d.indexOf('/app/')>-1)destino=d}catch(e){}
   location.replace(destino);
 }
+// El servicio puede quedarse sin la clave (lo reinician, o no la ve en el
+// almacén): cuando la pida, esta página se la manda.
+try{navigator.serviceWorker.addEventListener('message',async e=>{
+  if(e.data&&e.data.tipo==='dameLlave'){const k=await leerLlave();if(k&&e.source)e.source.postMessage({tipo:'llave',key:k})}
+})}catch(e){}
+
 (async()=>{
   $('rs').onclick=reiniciar;
   try{

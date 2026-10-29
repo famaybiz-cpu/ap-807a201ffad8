@@ -127,6 +127,17 @@ async function verifica(key, meta) {
 
 let META = null;
 
+// Si el servicio pide la clave, esta página se la manda: desde la página sí se
+// puede leer del almacén, desde el servicio a veces no.
+try {
+  navigator.serviceWorker.addEventListener('message', async (e) => {
+    if (e.data && e.data.tipo === 'dameLlave') {
+      const k = await leerLlave();
+      if (k && e.source) e.source.postMessage({ tipo: 'llave', key: k });
+    }
+  });
+} catch (e) {}
+
 (async function revisar() {
   // 1. lo básico del navegador
   const hayCrypto = !!(window.crypto && crypto.subtle);
