@@ -5,7 +5,10 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-8-llave-por-cache';   // para saber en el informe qué versión corre
+const VERSION = 'sw-9-video-drive';   // para saber en el informe qué versión corre
+const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
+let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
+const fichas = new Map();       // id del archivo -> { size, mime }
 const MIME = {
   html: 'text/html;charset=utf-8', js: 'text/javascript;charset=utf-8', mjs: 'text/javascript;charset=utf-8',
   css: 'text/css;charset=utf-8', json: 'application/json;charset=utf-8',
@@ -45,6 +48,7 @@ async function pedirLlaveAlaPagina() {
 // página guardó en el almacén, así que hay que pasársela en mano.
 self.addEventListener('message', (e) => {
   const d = e.data || {};
+  if (d.tipo === 'tokenDrive') TOKEN = d.token || '';
   if (d.tipo === 'llave' && d.key) {
     KEY = d.key;
     if (esperando) { esperando(d.key); esperando = null; }
@@ -108,6 +112,57 @@ async function nombre(path) {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
 }
 
+/**
+ * Entrega un video de Drive al reproductor propio, por trozos.
+ *
+ * Safari pide el video a pedazos (cabecera Range) y no puede mandar el permiso
+ * de Drive en esos pedidos. Así que el <video> apunta a una dirección de este
+ * mismo sitio y aquí se traduce: se pide el trozo a Drive con el permiso que
+ * dejó la página. Al venir del mismo origen, además, se le puede subir la voz.
+ */
+async function fichaDrive(id) {
+  if (fichas.has(id)) return fichas.get(id);
+  const u = DRIVE + encodeURIComponent(id) + '?fields=size,mimeType&supportsAllDrives=true';
+  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN } });
+  if (!r.ok) throw new Error('ficha ' + r.status);
+  const j = await r.json();
+  const f = { size: +j.size || 0, mime: j.mimeType || 'video/mp4' };
+  fichas.set(id, f);
+  return f;
+}
+
+async function servirVideo(id, pedido) {
+  if (!TOKEN) return new Response('Sin permiso de Drive', { status: 401 });
+  const f = await fichaDrive(id);
+  const m = (pedido.headers.get('range') || '').match(/bytes=(\d*)-(\d*)/);
+  const total = f.size;
+  let desde = m && m[1] ? +m[1] : 0;
+  let hasta = m && m[2] ? +m[2] : (total ? total - 1 : desde + 8 * 1024 * 1024);
+  if (total && hasta > total - 1) hasta = total - 1;
+  if (total && desde > hasta) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + total } });
+  }
+  const u = DRIVE + encodeURIComponent(id) + '?alt=media&supportsAllDrives=true&acknowledgeAbuse=true';
+  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } });
+  if (!r.ok && r.status !== 206) {
+    if (r.status === 401 || r.status === 403) {        // el permiso venció: que lo renueve la página
+      const cs = await self.clients.matchAll({ type: 'window' });
+      cs.forEach((c) => c.postMessage({ tipo: 'renovarDrive' }));
+    }
+    return new Response('Drive respondió ' + r.status, { status: r.status });
+  }
+  // Drive no deja leer su cabecera Content-Range desde el navegador: se arma
+  // aquí con el tamaño que ya se conoce del archivo.
+  const h = new Headers({
+    'Content-Type': f.mime,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'no-store',
+    'Content-Length': String(hasta - desde + 1),
+  });
+  if (total) h.set('Content-Range', 'bytes ' + desde + '-' + hasta + '/' + total);
+  return new Response(r.body, { status: 206, statusText: 'Partial Content', headers: h });
+}
+
 async function servirApp(path) {
   const key = await llave();
   if (!key) return Response.redirect(SCOPE, 302);               // sin clave: pantalla de candado
@@ -145,6 +200,13 @@ self.addEventListener('fetch', (e) => {
   if (request.method !== 'GET') return;
   const u = new URL(request.url);
   if (u.origin !== location.origin || !u.pathname.startsWith(SCOPE)) return;
+  const VIDEO = APP + 'reproductor/video/';
+  if (u.pathname.startsWith(VIDEO)) {
+    const id = decodeURIComponent(u.pathname.slice(VIDEO.length));
+    return e.respondWith(
+      servirVideo(id, request).catch((err) => new Response('Error: ' + err.message, { status: 502 }))
+    );
+  }
   if (u.pathname.startsWith(APP)) {
     let path = decodeURIComponent(u.pathname.slice(APP.length));
     if (path === '' || path.endsWith('/')) path += 'index.html';
