@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#7C1F5E">
+<title>Revisión</title>
+<style>
+:root{--bg:#fbf3f1;--ink:#3a2230;--ink2:#7d6272;--line:#efd9dd;--rose:#d4708a;--rose2:#b9577a;--oro:#c39a5a;--card:#fff;--ok:#2e7d52;--mal:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#1b1217;--ink:#f6e8ee;--ink2:#b99dab;--line:#3d2a35;--card:#2b1d26;--ok:#6fcf97;--mal:#ff8b7a}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{background:radial-gradient(900px 420px at 80% -10%,#f8e1e7,transparent 60%),var(--bg);color:var(--ink);
+     font:15px/1.5 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;padding:env(safe-area-inset-top) 0 40px}
+@media(prefers-color-scheme:dark){body{background:radial-gradient(900px 420px at 80% -10%,#2e1b26,transparent 60%),var(--bg)}}
+.wrap{max-width:620px;margin:0 auto;padding:22px 18px}
+.orn{color:var(--oro);letter-spacing:6px;font-size:12px;text-align:center}
+h1{font-family:ui-serif,"New York",Georgia,serif;font-weight:600;font-size:28px;margin:10px 0 6px;text-align:center}
+.lead{color:var(--ink2);font-size:13.5px;text-align:center;margin:0 0 20px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:18px;
+       box-shadow:0 10px 30px -12px rgba(185,87,122,.35);margin-bottom:14px}
+h2{font-family:ui-serif,"New York",Georgia,serif;font-weight:600;font-size:18px;margin:0 0 10px}
+.r{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px;align-items:flex-start}
+.r:last-child{border-bottom:0}
+.r .q{flex:1;min-width:0}
+.r .v{font-weight:600;white-space:nowrap}
+.si{color:var(--ok)} .no{color:var(--mal)} .gris{color:var(--ink2)}
+input{width:100%;padding:13px 15px;border-radius:15px;border:1px solid var(--line);background:var(--bg);
+      color:var(--ink);font:inherit;font-size:16px;outline:none}
+input:focus{border-color:var(--rose)}
+button{font:inherit;cursor:pointer;width:100%;padding:14px;border:0;border-radius:15px;
+       background:linear-gradient(135deg,var(--rose),var(--rose2));color:#fff;font-weight:600;font-size:16px;margin-top:10px}
+button.otro{background:var(--card);color:var(--rose2);border:1px solid var(--line)}
+.sub{color:var(--ink2);font-size:12.5px;margin:8px 0 0}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;font-size:11px;
+    white-space:pre-wrap;word-break:break-word;color:var(--ink2);margin-top:12px;max-height:240px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="orn">✿ ✿ ✿</div>
+  <h1>Revisión</h1>
+  <p class="lead">Esta página no usa el servicio que está fallando, así que abre siempre.</p>
+
+  <div class="panel">
+    <h2>Qué encontré</h2>
+    <div id="lista"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Tu progreso</h2>
+    <p class="sub" id="prog">Mirando…</p>
+    <input id="pw" type="password" placeholder="Tu clave" autocomplete="off" autocapitalize="none" spellcheck="false">
+    <button id="bajar">Descargar mi progreso</button>
+    <p class="sub">Pide la clave para que nadie más pueda descargarlo. Se guarda en Archivos, en tu iPad.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Empezar de cero</h2>
+    <p class="sub">Borra el servicio, la caché y la clave guardada de este sitio, y vuelve a la portada. Tu progreso de este dispositivo NO se borra.</p>
+    <button class="otro" id="limpiar">Limpiar y volver a la portada</button>
+  </div>
+
+  <div class="panel">
+    <h2>Para mandarme</h2>
+    <p class="sub">Copia esto y pégamelo en el chat.</p>
+    <button class="otro" id="copiar">Copiar el informe</button>
+    <pre id="informe">…</pre>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.getElementById(s);
+const datos = {};
+
+function fila(q, v, clase) {
+  const d = document.createElement('div');
+  d.className = 'r';
+  const a = document.createElement('span'); a.className = 'q'; a.textContent = q;
+  const b = document.createElement('span'); b.className = 'v ' + (clase || 'gris'); b.textContent = v;
+  d.append(a, b);
+  $('lista').appendChild(d);
+}
+
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+function idb() {
+  return new Promise((ok, no) => {
+    const r = indexedDB.open('ti_llave', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('k');
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  });
+}
+async function leerLlave() {
+  try {
+    const db = await idb();
+    return await new Promise((ok) => {
+      const g = db.transaction('k').objectStore('k').get('llave');
+      g.onsuccess = () => ok(g.result || null);
+      g.onerror = () => ok(null);
+    });
+  } catch (e) { return null; }
+}
+
+async function derivar(pass, meta) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass.trim().toLowerCase()), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: b64(meta.s), iterations: meta.n, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+}
+async function verifica(key, meta) {
+  const buf = b64(meta.chk);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+  return new TextDecoder().decode(pt) === 'ok';
+}
+
+let META = null;
+
+(async function revisar() {
+  // 1. lo básico del navegador
+  const hayCrypto = !!(window.crypto && crypto.subtle);
+  fila('Cifrado del navegador', hayCrypto ? 'sí' : 'NO', hayCrypto ? 'si' : 'no');
+  datos.crypto = hayCrypto;
+
+  const haySW = 'serviceWorker' in navigator;
+  fila('Soporta el servicio', haySW ? 'sí' : 'NO', haySW ? 'si' : 'no');
+  datos.sw = haySW;
+
+  // 2. el servicio: ¿está registrado y mandando?
+  if (haySW) {
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      datos.registros = regs.length;
+      fila('Servicios registrados', String(regs.length), regs.length ? 'si' : 'no');
+      const r = regs[0];
+      if (r) {
+        const est = r.active ? 'activo' : r.waiting ? 'esperando' : r.installing ? 'instalando' : '?';
+        datos.estadoSW = est;
+        fila('Estado del servicio', est, r.active ? 'si' : 'no');
+      }
+    } catch (e) {
+      datos.registrosError = e.message;
+      fila('Servicios registrados', 'error', 'no');
+    }
+    // registrar de nuevo, para ver si falla y con qué mensaje
+    try {
+      await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+      datos.registrar = 'ok';
+      fila('Registrar el servicio', 'ok', 'si');
+    } catch (e) {
+      datos.registrar = e.message;
+      fila('Registrar el servicio', 'falla', 'no');
+      fila('  motivo', e.message, 'no');
+    }
+  }
+
+  // 3. almacenamiento
+  try {
+    const n = Object.keys(localStorage).length;
+    datos.localStorage = n;
+    fila('Datos guardados en este iPad', n + ' claves', n ? 'si' : 'no');
+  } catch (e) {
+    datos.localStorage = 'bloqueado';
+    fila('Datos guardados en este iPad', 'bloqueado', 'no');
+  }
+  try {
+    fila('Caché disponible', 'caches' in self ? 'sí' : 'NO', 'caches' in self ? 'si' : 'no');
+    if ('caches' in self) { const ks = await caches.keys(); datos.caches = ks; fila('  cachés guardadas', String(ks.length), 'gris'); }
+  } catch (e) { datos.caches = 'error'; }
+
+  // 4. la clave guardada
+  const k = await leerLlave();
+  datos.llaveGuardada = !!k;
+  fila('Clave guardada en el iPad', k ? 'sí' : 'no', k ? 'si' : 'gris');
+
+  // 5. el sitio
+  try {
+    META = await fetch('meta.json', { cache: 'no-store' }).then((r) => r.json());
+    datos.meta = META.v;
+    datos.core = (META.core || []).length;
+    fila('Índice del sitio', 'ok (' + META.v + ')', 'si');
+    if (k) {
+      try {
+        const vale = await verifica(k, META);
+        datos.llaveSirve = vale;
+        fila('La clave guardada sirve', vale ? 'sí' : 'NO', vale ? 'si' : 'no');
+      } catch (e) {
+        datos.llaveSirve = false;
+        fila('La clave guardada sirve', 'NO', 'no');
+      }
+    }
+  } catch (e) {
+    datos.meta = 'error: ' + e.message;
+    fila('Índice del sitio', 'no cargó', 'no');
+  }
+
+  // 6. ¿el servicio sirve la app?
+  try {
+    const r = await fetch('app/index.html', { redirect: 'manual' });
+    datos.app = r.type === 'opaqueredirect' ? 'redirige a la portada' : r.status;
+    const bien = r.status === 200 && r.type !== 'opaqueredirect';
+    fila('La app responde', String(datos.app), bien ? 'si' : 'no');
+    if (bien) {
+      const t = await r.text();
+      datos.appHtml = t.slice(0, 40);
+      fila('  y trae la app', t.includes('app.js') ? 'sí' : 'NO', t.includes('app.js') ? 'si' : 'no');
+    }
+  } catch (e) {
+    datos.app = 'error: ' + e.message;
+    fila('La app responde', 'error', 'no');
+  }
+
+  datos.navegador = navigator.userAgent;
+  datos.cuando = new Date().toISOString();
+  $('informe').textContent = JSON.stringify(datos, null, 1);
+})();
+
+/* ---- progreso ---- */
+// Se lleva todo lo de la app menos las copias de los simulacros, que pesan
+// mucho y se vuelven a bajar solas. Así no se queda nada afuera por olvido.
+const ES_CACHE = (k) => k.startsWith('si.sim.') || k === 'si.indice.v1' || k === 'si.temas.v1';
+
+function progresoLocal() {
+  const out = {};
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('si.') && !ES_CACHE(k)) out[k] = localStorage.getItem(k);
+    }
+  } catch (e) {}
+  return out;
+}
+(function mirarProgreso() {
+  const p = progresoLocal();
+  const n = Object.keys(p).length;
+  const bytes = Object.values(p).reduce((a, x) => a + (x ? x.length : 0), 0);
+  const tam = bytes < 1024 ? bytes + ' bytes' : Math.round(bytes / 1024) + ' KB';
+  $('prog').textContent = n
+    ? 'Encontré ' + n + (n === 1 ? ' bloque guardado' : ' bloques guardados') + ' (' + tam + ').'
+    : 'No encontré nada guardado de la app en este navegador.';
+})();
+
+$('bajar').onclick = async () => {
+  if (!META) { alert('Todavía no cargó el índice del sitio. Espera unos segundos.'); return; }
+  try {
+    const key = await derivar($('pw').value, META);
+    if (!(await verifica(key, META))) throw 0;
+  } catch (e) { alert('Clave incorrecta'); return; }
+  const todo = { exportado: new Date().toISOString(), datos: progresoLocal() };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(todo, null, 1)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'progreso-ipad-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
+
+$('limpiar').onclick = async () => {
+  if (!confirm('Se borra el servicio, la caché y la clave guardada. Tu progreso de este iPad NO se borra. ¿Sigo?')) return;
+  try { (await navigator.serviceWorker.getRegistrations()).forEach((r) => r.unregister()); } catch (e) {}
+  try { for (const k of await caches.keys()) if (k.startsWith('ti-')) await caches.delete(k); } catch (e) {}
+  try { indexedDB.deleteDatabase('ti_llave'); } catch (e) {}
+  try { sessionStorage.clear(); } catch (e) {}
+  location.replace('./');
+};
+
+$('copiar').onclick = async () => {
+  try { await navigator.clipboard.writeText($('informe').textContent); $('copiar').textContent = 'Copiado ✿'; }
+  catch (e) { $('copiar').textContent = 'Selecciona el texto de abajo y copia'; }
+};
+</script>
+</body>
+</html>
