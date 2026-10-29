@@ -40,10 +40,14 @@ button{width:100%;padding:15px;border:0;border-radius:16px;background:linear-gra
     <p id="msg"></p>
   </div>
   <p id="st">Abriendo…</p>
+  <button id="rs" hidden style="margin-top:12px;background:#fff;color:#b9577a;border:1px solid #efd9dd">Reiniciar y reintentar</button>
 </div>
 <script>
 "use strict";
 const $=s=>document.getElementById(s);
+const paso=t=>{$('st').textContent=t};
+const con=(p,ms,n)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(new Error('tiempo agotado en: '+n)),ms))]);
+async function reiniciar(){try{(await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());for(const k of await caches.keys())if(k.startsWith('ti-'))await caches.delete(k);indexedDB.deleteDatabase('ti_llave');sessionStorage.clear()}catch(e){}location.replace(location.pathname)}
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 function idb(){return new Promise((ok,no)=>{const r=indexedDB.open('ti_llave',1);r.onupgradeneeded=()=>r.result.createObjectStore('k');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
 async function guardarLlave(k){const db=await idb();return new Promise((ok,no)=>{const t=db.transaction('k','readwrite');t.objectStore('k').put(k,'llave');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
@@ -58,20 +62,31 @@ async function derivar(pass,meta){
   return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(meta.s),iterations:meta.n,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
 }
 async function entrar(meta){
+  const n=+(sessionStorage.getItem('ti_n')||0)+1;sessionStorage.setItem('ti_n',n);
+  if(n>2){paso('La app no pudo abrirse desde aquí. Toca Reiniciar y reintentar.');$('rs').hidden=false;return}
   $('st').textContent='Preparando para usar sin internet…';
   if(!navigator.serviceWorker.controller){
     await Promise.race([new Promise(r=>navigator.serviceWorker.addEventListener('controllerchange',r,{once:true})),new Promise(r=>setTimeout(r,4000))]);
   }
-  await Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{})));
+  await con(Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{}))),20000,'guardar para uso sin internet').catch(()=>{});
   location.replace('app/index.html');
 }
 (async()=>{
-  if(!window.crypto||!crypto.subtle||!('serviceWorker' in navigator)){$('st').textContent='Este navegador no es compatible.';return}
-  const meta=await (await fetch('meta.json',{cache:'no-store'})).json();
-  await navigator.serviceWorker.register('sw.js',{updateViaCache:'none'});
-  await navigator.serviceWorker.ready;
-  const k=await leerLlave();
+  $('rs').onclick=reiniciar;
+  try{
+  if(!window.crypto||!crypto.subtle||!('serviceWorker' in navigator)){paso('Este navegador no es compatible (falta cifrado o service worker).');$('rs').hidden=false;return}
+  paso('Abriendo… (1/4)');
+  const meta=await con(fetch('meta.json',{cache:'no-store'}).then(r=>r.json()),10000,'leer meta.json');
+  paso('Abriendo… (2/4)');
+  await con(navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}),10000,'registrar el servicio');
+  await con(navigator.serviceWorker.ready,10000,'activar el servicio');
+  paso('Abriendo… (3/4)');
+  const k=await con(leerLlave(),5000,'leer la clave guardada');
   if(k){try{if(await verifica(k,meta))return entrar(meta)}catch(e){}}
+  window.__meta=meta;
+  $('st').hidden=true;$('f').hidden=false;
+  }catch(e){paso('No pude abrir: '+(e&&e.message||e));$('rs').hidden=false;return}
+  const meta=window.__meta;
   $('st').hidden=true;$('f').hidden=false;
   const go=async()=>{
     $('msg').textContent='';
