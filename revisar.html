@@ -336,8 +336,32 @@ $('guardar').onclick = async () => {
     const sw = reg.active || navigator.serviceWorker.controller;
     if (sw && leida) sw.postMessage({ tipo: 'llave', key: leida });
   } catch (e) {}
-  m.textContent = 'Lista ✿ abriendo la app…';
-  setTimeout(() => location.replace('app/index.html'), 800);
+  // Comprobar YA si el servicio puede descifrar con lo que acabamos de dejarle.
+  // Si no puede, decirlo claro en vez de mandarla a la app y que dé vueltas.
+  m.textContent = 'Comprobando…';
+  let v = null;
+  try {
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, no) => setTimeout(() => no(new Error('sin servicio')), 4000)),
+    ]);
+    const sw2 = reg.active || navigator.serviceWorker.controller;
+    v = await new Promise((ok, no) => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = (ev) => ok(ev.data);
+      setTimeout(() => no(new Error('no contestó')), 9000);
+      sw2.postMessage({ tipo: 'diagnostico' }, [ch.port2]);
+    });
+  } catch (e) { v = null; }
+
+  if (v && (v.trasPedir === true || v.llaveEnCache === true)) {
+    m.textContent = 'Lista ✿ abriendo la app…';
+    setTimeout(() => location.replace('app/index.html'), 800);
+    return;
+  }
+  m.textContent = 'Tu clave está bien y quedó guardada, pero el servicio de Safari sigue sin poder leerla'
+    + (v ? ' (caché: ' + v.llaveEnCache + ', pedido: ' + v.trasPedir + ')' : ' (no contestó)')
+    + '. En este iPad usa Chrome. Mándame el informe y lo sigo viendo.';
 };
 
 $('bajar').onclick = async () => {

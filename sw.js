@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-7-llave-por-cache';   // para saber en el informe qué versión corre
+const VERSION = 'sw-8-llave-por-cache';   // para saber en el informe qué versión corre
 const MIME = {
   html: 'text/html;charset=utf-8', js: 'text/javascript;charset=utf-8', mjs: 'text/javascript;charset=utf-8',
   css: 'text/css;charset=utf-8', json: 'application/json;charset=utf-8',
