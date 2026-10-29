@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#7C1F5E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Internado">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="ic-180.png">
+<title>Internado</title>
+<style>
+:root{--bg:#fbf3f1;--ink:#3a2230;--ink2:#7d6272;--line:#efd9dd;--rose:#d4708a;--rose2:#b9577a;--card:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#1b1217;--ink:#f6e8ee;--ink2:#b99dab;--line:#3d2a35;--card:#2b1d26}}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif}
+body{display:grid;place-items:center;min-height:100vh;padding:24px;background:radial-gradient(900px 420px at 80% -10%,#f8e1e7,transparent 60%),var(--bg)}
+.box{width:min(380px,100%);text-align:center}
+.orn{color:#c39a5a;letter-spacing:6px;font-size:12px}
+h1{font-family:ui-serif,"New York",Georgia,serif;font-weight:600;font-size:30px;margin:10px 0 18px;line-height:1.15}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:0 10px 30px -12px rgba(185,87,122,.35)}
+p{color:var(--ink2);font-size:13.5px;margin:0 0 12px}
+input[type=password]{width:100%;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:16px;outline:none}
+input[type=password]:focus{border-color:var(--rose)}
+label{display:flex;gap:8px;align-items:center;justify-content:center;font-size:13px;color:var(--ink2);margin:12px 0}
+button{width:100%;padding:15px;border:0;border-radius:16px;background:linear-gradient(135deg,var(--rose),var(--rose2));color:#fff;font:inherit;font-weight:600;font-size:17px}
+#msg{color:#d9607a;margin:10px 0 0;min-height:18px}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="orn">✿ ✿ ✿</div>
+  <h1>Internado</h1>
+  <div class="panel" id="f" hidden>
+    <p>Contenido protegido. Escribe tu clave para abrirlo.</p>
+    <input id="pw" type="password" placeholder="Clave" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <button id="go">Abrir</button>
+    <p id="msg"></p>
+  </div>
+  <p id="st">Abriendo…</p>
+</div>
+<script>
+"use strict";
+const $=s=>document.getElementById(s);
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+function idb(){return new Promise((ok,no)=>{const r=indexedDB.open('ti_llave',1);r.onupgradeneeded=()=>r.result.createObjectStore('k');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
+async function guardarLlave(k){const db=await idb();return new Promise((ok,no)=>{const t=db.transaction('k','readwrite');t.objectStore('k').put(k,'llave');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
+async function leerLlave(){try{const db=await idb();return await new Promise(ok=>{const g=db.transaction('k').objectStore('k').get('llave');g.onsuccess=()=>ok(g.result||null);g.onerror=()=>ok(null)})}catch(e){return null}}
+async function verifica(key,meta){
+  const buf=b64(meta.chk);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:buf.slice(0,12)},key,buf.slice(12));
+  return new TextDecoder().decode(pt)==='ok';
+}
+async function derivar(pass,meta){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass.trim().toLowerCase()),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(meta.s),iterations:meta.n,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+}
+async function entrar(meta){
+  $('st').textContent='Preparando para usar sin internet…';
+  if(!navigator.serviceWorker.controller){
+    await Promise.race([new Promise(r=>navigator.serviceWorker.addEventListener('controllerchange',r,{once:true})),new Promise(r=>setTimeout(r,4000))]);
+  }
+  await Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{})));
+  location.replace('app/index.html');
+}
+(async()=>{
+  if(!window.crypto||!crypto.subtle||!('serviceWorker' in navigator)){$('st').textContent='Este navegador no es compatible.';return}
+  const meta=await (await fetch('meta.json',{cache:'no-store'})).json();
+  await navigator.serviceWorker.register('sw.js',{updateViaCache:'none'});
+  await navigator.serviceWorker.ready;
+  const k=await leerLlave();
+  if(k){try{if(await verifica(k,meta))return entrar(meta)}catch(e){}}
+  $('st').hidden=true;$('f').hidden=false;
+  const go=async()=>{
+    $('msg').textContent='';
+    try{
+      const key=await derivar($('pw').value,meta);
+      if(!(await verifica(key,meta)))throw 0;
+      await guardarLlave(key);
+      $('f').hidden=true;$('st').hidden=false;entrar(meta);
+    }catch(e){$('msg').textContent='Clave incorrecta'}
+  };
+  $('go').onclick=go;$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+})();
+</script>
+</body>
+</html>
