@@ -28,7 +28,26 @@ let KEY = null;
 // La portada también manda la clave por mensaje: si el almacén del navegador
 // falla (en iPadOS a veces no guarda), con esto el servicio igual puede servir.
 self.addEventListener('message', (e) => {
-  if (e.data && e.data.tipo === 'llave' && e.data.key) KEY = e.data.key;
+  const d = e.data || {};
+  if (d.tipo === 'llave' && d.key) KEY = d.key;
+  // Prueba desde revisar.html: ¿puede este servicio leer el almacén del
+  // navegador? En algunos Safari no, y por eso no encuentra la clave.
+  if (d.tipo === 'diagnostico' && e.ports && e.ports[0]) {
+    (async () => {
+      const r = { enMemoria: !!KEY, idb: 'no probado', llaveEnAlmacen: false };
+      try {
+        const db = await idb();
+        r.idb = 'ok';
+        r.llaveEnAlmacen = !!(await new Promise((ok) => {
+          const g = db.transaction('k').objectStore('k').get('llave');
+          g.onsuccess = () => ok(g.result || null);
+          g.onerror = () => ok(null);
+        }));
+        db.close();
+      } catch (err) { r.idb = 'falla: ' + (err && err.message || err); }
+      e.ports[0].postMessage(r);
+    })();
+  }
 });
 async function llave() {
   if (KEY) return KEY;

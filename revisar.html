@@ -205,6 +205,28 @@ let META = null;
     fila('Índice del sitio', 'no cargó', 'no');
   }
 
+  // 5b. ¿el servicio puede leer el almacén? (en algunos Safari no)
+  try {
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, no) => setTimeout(() => no(new Error('sin servicio')), 4000)),
+    ]);
+    const sw = reg.active || navigator.serviceWorker.controller;
+    const r = await new Promise((ok, no) => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = (ev) => ok(ev.data);
+      setTimeout(() => no(new Error('no contestó')), 4000);
+      sw.postMessage({ tipo: 'diagnostico' }, [ch.port2]);
+    });
+    datos.servicio = r;
+    fila('El servicio lee el almacén', r.idb === 'ok' ? 'sí' : 'NO', r.idb === 'ok' ? 'si' : 'no');
+    if (r.idb !== 'ok') fila('  motivo', String(r.idb), 'no');
+    fila('  y encuentra la clave', r.llaveEnAlmacen ? 'sí' : 'no', r.llaveEnAlmacen ? 'si' : 'no');
+  } catch (e) {
+    datos.servicio = 'no contestó: ' + e.message;
+    fila('El servicio contesta', 'NO', 'no');
+  }
+
   // 6. ¿el servicio sirve la app?
   try {
     const r = await fetch('app/index.html', { redirect: 'manual' });
