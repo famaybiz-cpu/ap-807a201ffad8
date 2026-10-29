@@ -29,7 +29,10 @@ let KEY = null;
 // falla (en iPadOS a veces no guarda), con esto el servicio igual puede servir.
 self.addEventListener('message', (e) => {
   const d = e.data || {};
-  if (d.tipo === 'llave' && d.key) KEY = d.key;
+  if (d.tipo === 'llave' && d.key) {
+    KEY = d.key;
+    if (e.ports && e.ports[0]) e.ports[0].postMessage({ ok: true });   // acuse de recibo
+  }
   // Prueba desde revisar.html: ¿puede este servicio leer el almacén del
   // navegador? En algunos Safari no, y por eso no encuentra la clave.
   if (d.tipo === 'diagnostico' && e.ports && e.ports[0]) {

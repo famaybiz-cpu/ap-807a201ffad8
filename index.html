@@ -57,7 +57,23 @@ function idb(){return new Promise((ok,no)=>{const r=indexedDB.open('ti_llave',1)
 async function guardarLlave(k){const db=await idb();await new Promise((ok,no)=>{const t=db.transaction('k','readwrite');t.objectStore('k').put(k,'llave');t.oncomplete=ok;t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)});db.close()}
 // Darle la clave al servicio en mano: si el almacén del navegador no la guarda,
 // el servicio igual puede descifrar mientras la pestaña siga abierta.
-async function avisarServicio(k){try{const reg=await con(navigator.serviceWorker.ready,3000,'avisar al servicio');const sw=reg.active||navigator.serviceWorker.controller;if(sw)sw.postMessage({tipo:'llave',key:k})}catch(e){}}
+// En Safari el servicio abre el almacén pero no ve lo que guardó la página, así
+// que la clave hay que ponérsela en la mano y ESPERAR que confirme. Si se abre
+// la app sin esa confirmación, el servicio no puede descifrar, devuelve a la
+// portada y se arma el bucle de «Reiniciar y reintentar».
+async function avisarServicio(k){
+  try{
+    const reg=await con(navigator.serviceWorker.ready,4000,'avisar al servicio');
+    const sw=reg.active||navigator.serviceWorker.controller;
+    if(!sw)return false;
+    return await new Promise(ok=>{
+      const ch=new MessageChannel();
+      ch.port1.onmessage=e=>ok(!!(e.data&&e.data.ok));
+      setTimeout(()=>ok(false),3000);
+      sw.postMessage({tipo:'llave',key:k},[ch.port2]);
+    });
+  }catch(e){return false}
+}
 async function leerLlave(){try{const db=await idb();return await new Promise(ok=>{const g=db.transaction('k').objectStore('k').get('llave');g.onsuccess=()=>ok(g.result||null);g.onerror=()=>ok(null)})}catch(e){return null}}
 async function verifica(key,meta){
   const buf=b64(meta.chk);
@@ -76,6 +92,15 @@ async function entrar(meta){
     await Promise.race([new Promise(r=>navigator.serviceWorker.addEventListener('controllerchange',r,{once:true})),new Promise(r=>setTimeout(r,4000))]);
   }
   await con(Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{}))),20000,'guardar para uso sin internet').catch(()=>{});
+  // Última comprobación antes de abrir: que el servicio pueda descifrar de
+  // verdad. Si no, avisar en vez de entrar en bucle.
+  try{
+    const r=await con(fetch('app/index.html',{redirect:'manual'}),8000,'probar la app');
+    if(r.type==='opaqueredirect'||r.status===403){
+      paso('Safari no le está pasando la clave al servicio. Abre la app en Chrome, o toca Reiniciar y reintentar.');
+      $('rs').hidden=false;return;
+    }
+  }catch(e){}
   // Si llegó por un enlace directo (p. ej. .../app/reproductor/), el 404 guardó
   // a dónde iba: ahora que el servicio ya manda, se abre ahí y no en la portada.
   let destino='app/index.html';
