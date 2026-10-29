@@ -226,13 +226,15 @@ try {
     const r = await new Promise((ok, no) => {
       const ch = new MessageChannel();
       ch.port1.onmessage = (ev) => ok(ev.data);
-      setTimeout(() => no(new Error('no contestó')), 4000);
+      setTimeout(() => no(new Error('no contestó')), 9000);   // pedir la clave tarda hasta 2,5 s
       sw.postMessage({ tipo: 'diagnostico' }, [ch.port2]);
     });
     datos.servicio = r;
+    fila('Versión del servicio', r.version || 'vieja', r.version ? 'si' : 'no');
     fila('El servicio lee el almacén', r.idb === 'ok' ? 'sí' : 'NO', r.idb === 'ok' ? 'si' : 'no');
     if (r.idb !== 'ok') fila('  motivo', String(r.idb), 'no');
     fila('  y encuentra la clave', r.llaveEnAlmacen ? 'sí' : 'no', r.llaveEnAlmacen ? 'si' : 'no');
+    if ('trasPedir' in r) fila('Al pedírsela a la página', r.trasPedir === true ? 'la consigue' : 'NO', r.trasPedir === true ? 'si' : 'no');
   } catch (e) {
     datos.servicio = 'no contestó: ' + e.message;
     fila('El servicio contesta', 'NO', 'no');

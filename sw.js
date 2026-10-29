@@ -4,6 +4,7 @@
 const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1';
+const VERSION = 'sw-6-pide-llave';   // para saber en el informe qué versión corre
 const MIME = {
   html: 'text/html;charset=utf-8', js: 'text/javascript;charset=utf-8', mjs: 'text/javascript;charset=utf-8',
   css: 'text/css;charset=utf-8', json: 'application/json;charset=utf-8',
@@ -52,7 +53,7 @@ self.addEventListener('message', (e) => {
   // navegador? En algunos Safari no, y por eso no encuentra la clave.
   if (d.tipo === 'diagnostico' && e.ports && e.ports[0]) {
     (async () => {
-      const r = { enMemoria: !!KEY, idb: 'no probado', llaveEnAlmacen: false };
+      const r = { version: VERSION, enMemoria: !!KEY, idb: 'no probado', llaveEnAlmacen: false };
       try {
         const db = await idb();
         r.idb = 'ok';
@@ -63,6 +64,8 @@ self.addEventListener('message', (e) => {
         }));
         db.close();
       } catch (err) { r.idb = 'falla: ' + (err && err.message || err); }
+      // Probar el camino nuevo de verdad: pedirle la clave a la página.
+      try { r.trasPedir = !!(await llave()); } catch (err) { r.trasPedir = 'error: ' + (err && err.message || err); }
       e.ports[0].postMessage(r);
     })();
   }
