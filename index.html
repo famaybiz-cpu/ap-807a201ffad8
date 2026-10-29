@@ -69,7 +69,12 @@ async function entrar(meta){
     await Promise.race([new Promise(r=>navigator.serviceWorker.addEventListener('controllerchange',r,{once:true})),new Promise(r=>setTimeout(r,4000))]);
   }
   await con(Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{}))),20000,'guardar para uso sin internet').catch(()=>{});
-  location.replace('app/index.html');
+  // Si llegó por un enlace directo (p. ej. .../app/reproductor/), el 404 guardó
+  // a dónde iba: ahora que el servicio ya manda, se abre ahí y no en la portada.
+  let destino='app/index.html';
+  try{const d=sessionStorage.getItem('ti_destino');sessionStorage.removeItem('ti_destino');
+      if(d&&d.indexOf('/app/')>-1)destino=d}catch(e){}
+  location.replace(destino);
 }
 (async()=>{
   $('rs').onclick=reiniciar;
