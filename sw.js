@@ -3,8 +3,9 @@
 // dispositivo (IndexedDB) y nunca sale de él.
 const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
-const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1';
-const VERSION = 'sw-6-pide-llave';   // para saber en el informe qué versión corre
+const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
+const RUTA_LLAVE = '/__llave__';
+const VERSION = 'sw-7-llave-por-cache';   // para saber en el informe qué versión corre
 const MIME = {
   html: 'text/html;charset=utf-8', js: 'text/javascript;charset=utf-8', mjs: 'text/javascript;charset=utf-8',
   css: 'text/css;charset=utf-8', json: 'application/json;charset=utf-8',
@@ -64,6 +65,7 @@ self.addEventListener('message', (e) => {
         }));
         db.close();
       } catch (err) { r.idb = 'falla: ' + (err && err.message || err); }
+      try { r.llaveEnCache = !!(await llaveDeCache()); } catch (err) { r.llaveEnCache = false; }
       // Probar el camino nuevo de verdad: pedirle la clave a la página.
       try { r.trasPedir = !!(await llave()); } catch (err) { r.trasPedir = 'error: ' + (err && err.message || err); }
       e.ports[0].postMessage(r);
@@ -80,8 +82,26 @@ async function llave() {
       g.onerror = () => ok(null);
     });
   } catch { KEY = null; }
-  if (!KEY) KEY = await pedirLlaveAlaPagina();   // el almacén no la tiene: preguntar
+  if (!KEY) KEY = await llaveDeCache();          // el almacén del servicio va aparte
+  if (!KEY) KEY = await pedirLlaveAlaPagina();   // último recurso: preguntar a la página
   return KEY;
+}
+
+/**
+ * En Safari el almacén (IndexedDB) del servicio y el de la página van por
+ * separado, así que la clave guardada ahí le es invisible. La caché, en cambio,
+ * SÍ la comparten: se nota en que la página ve las cachés que crea el servicio.
+ * Así que la página deja ahí los bytes de la clave y aquí se recomponen.
+ */
+async function llaveDeCache() {
+  try {
+    const c = await caches.open(LLAVE);
+    const r = await c.match(RUTA_LLAVE);
+    if (!r) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (bytes.length !== 32) return null;
+    return await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['decrypt']);
+  } catch (e) { return null; }
 }
 async function nombre(path) {
   const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(path));

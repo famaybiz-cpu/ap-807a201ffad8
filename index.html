@@ -87,6 +87,13 @@ async function derivar(pass,meta){
   const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass.trim().toLowerCase()),'PBKDF2',false,['deriveKey']);
   return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(meta.s),iterations:meta.n,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
 }
+// El servicio no ve el almacén de la página (Safari los separa), pero la caché
+// sí la comparten. Los bytes de la clave se dejan ahí para que pueda descifrar.
+async function derivarBits(pass,meta){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass.trim().toLowerCase()),'PBKDF2',false,['deriveBits']);
+  return crypto.subtle.deriveBits({name:'PBKDF2',salt:b64(meta.s),iterations:meta.n,hash:'SHA-256'},km,256);
+}
+async function guardarLlaveEnCache(pass,meta){try{const bits=await derivarBits(pass,meta);const c=await caches.open('ti-llave-v1');await c.put('/__llave__',new Response(bits));return true}catch(e){return false}}
 async function entrar(meta){
   const n=+(sessionStorage.getItem('ti_n')||0)+1;sessionStorage.setItem('ti_n',n);
   if(n>2){paso('La app no pudo abrirse desde aquí. Toca Reiniciar y reintentar.');$('rs').hidden=false;return}
@@ -144,6 +151,7 @@ try{navigator.serviceWorker.addEventListener('message',async e=>{
     // Si el almacén falla, no es culpa de la clave: se sigue igual, con la
     // clave en mano del servicio. Antes esto salía como «Clave incorrecta».
     try{await guardarLlave(key)}catch(e){}
+    await guardarLlaveEnCache($('pw').value,meta);   // la vía que sí comparten
     await avisarServicio(key);
     $('f').hidden=true;$('st').hidden=false;entrar(meta);
   };

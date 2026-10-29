@@ -234,7 +234,8 @@ try {
     fila('El servicio lee el almacén', r.idb === 'ok' ? 'sí' : 'NO', r.idb === 'ok' ? 'si' : 'no');
     if (r.idb !== 'ok') fila('  motivo', String(r.idb), 'no');
     fila('  y encuentra la clave', r.llaveEnAlmacen ? 'sí' : 'no', r.llaveEnAlmacen ? 'si' : 'no');
-    if ('trasPedir' in r) fila('Al pedírsela a la página', r.trasPedir === true ? 'la consigue' : 'NO', r.trasPedir === true ? 'si' : 'no');
+    if ('llaveEnCache' in r) fila('La clave en la caché compartida', r.llaveEnCache ? 'sí' : 'no', r.llaveEnCache ? 'si' : 'no');
+    if ('trasPedir' in r) fila('El servicio consigue la clave', r.trasPedir === true ? 'SÍ' : 'NO', r.trasPedir === true ? 'si' : 'no');
   } catch (e) {
     datos.servicio = 'no contestó: ' + e.message;
     fila('El servicio contesta', 'NO', 'no');
@@ -307,12 +308,21 @@ $('guardar').onclick = async () => {
     if (!(await verifica(key, META))) { m.textContent = 'Esa clave no es la correcta.'; return; }
   } catch (e) { m.textContent = 'Esa clave no es la correcta.'; return; }
 
-  try { await guardarLlave(key); }
-  catch (e) { m.textContent = 'La clave es correcta, pero el iPad no la dejó guardar (' + e.message + '). Mándame este mensaje.'; return; }
+  try { await guardarLlave(key); } catch (e) { /* el almacén puede fallar: hay otra vía */ }
+
+  // La vía que sí comparten página y servicio en Safari: la caché.
+  let enCache = false;
+  try {
+    const km = await crypto.subtle.importKey('raw', new TextEncoder().encode($('pw2').value.trim().toLowerCase()), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: b64(META.s), iterations: META.n, hash: 'SHA-256' }, km, 256);
+    const c = await caches.open('ti-llave-v1');
+    await c.put('/__llave__', new Response(bits));
+    enCache = !!(await c.match('/__llave__'));
+  } catch (e) { enCache = false; }
 
   const leida = await leerLlave();                   // comprobar que de verdad quedó
-  if (!leida) {
-    m.textContent = 'La clave es correcta, pero no se queda guardada en este iPad. Mándame este mensaje.';
+  if (!leida && !enCache) {
+    m.textContent = 'La clave es correcta, pero este iPad no la deja guardar por ningún lado. Mándame este mensaje.';
     return;
   }
   // Dársela también al servicio, por si no puede leer el almacén. Con tope de
@@ -324,7 +334,7 @@ $('guardar').onclick = async () => {
       new Promise((_, no) => setTimeout(() => no(new Error('sin servicio')), 3000)),
     ]);
     const sw = reg.active || navigator.serviceWorker.controller;
-    if (sw) sw.postMessage({ tipo: 'llave', key: leida });
+    if (sw && leida) sw.postMessage({ tipo: 'llave', key: leida });
   } catch (e) {}
   m.textContent = 'Lista ✿ abriendo la app…';
   setTimeout(() => location.replace('app/index.html'), 800);
