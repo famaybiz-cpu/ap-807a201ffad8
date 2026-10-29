@@ -47,10 +47,17 @@ button{width:100%;padding:15px;border:0;border-radius:16px;background:linear-gra
 const $=s=>document.getElementById(s);
 const paso=t=>{$('st').textContent=t};
 const con=(p,ms,n)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(new Error('tiempo agotado en: '+n)),ms))]);
-async function reiniciar(){try{(await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());for(const k of await caches.keys())if(k.startsWith('ti-'))await caches.delete(k);indexedDB.deleteDatabase('ti_llave');sessionStorage.clear()}catch(e){}location.replace(location.pathname)}
+async function reiniciar(){try{(await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());for(const k of await caches.keys())if(k.startsWith('ti-'))await caches.delete(k);
+// Esperar a que el borrado termine: si queda pendiente, puede llevarse por
+// delante la clave que se guarda justo después y la app no abre nunca.
+await new Promise(ok=>{const r=indexedDB.deleteDatabase('ti_llave');r.onsuccess=r.onerror=r.onblocked=ok;setTimeout(ok,1500)});
+sessionStorage.clear()}catch(e){}location.replace(location.pathname)}
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 function idb(){return new Promise((ok,no)=>{const r=indexedDB.open('ti_llave',1);r.onupgradeneeded=()=>r.result.createObjectStore('k');r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
-async function guardarLlave(k){const db=await idb();return new Promise((ok,no)=>{const t=db.transaction('k','readwrite');t.objectStore('k').put(k,'llave');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
+async function guardarLlave(k){const db=await idb();await new Promise((ok,no)=>{const t=db.transaction('k','readwrite');t.objectStore('k').put(k,'llave');t.oncomplete=ok;t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)});db.close()}
+// Darle la clave al servicio en mano: si el almacén del navegador no la guarda,
+// el servicio igual puede descifrar mientras la pestaña siga abierta.
+async function avisarServicio(k){try{const reg=await con(navigator.serviceWorker.ready,3000,'avisar al servicio');const sw=reg.active||navigator.serviceWorker.controller;if(sw)sw.postMessage({tipo:'llave',key:k})}catch(e){}}
 async function leerLlave(){try{const db=await idb();return await new Promise(ok=>{const g=db.transaction('k').objectStore('k').get('llave');g.onsuccess=()=>ok(g.result||null);g.onerror=()=>ok(null)})}catch(e){return null}}
 async function verifica(key,meta){
   const buf=b64(meta.chk);
@@ -87,7 +94,7 @@ async function entrar(meta){
   await con(navigator.serviceWorker.ready,10000,'activar el servicio');
   paso('Abriendo… (3/4)');
   const k=await con(leerLlave(),5000,'leer la clave guardada');
-  if(k){try{if(await verifica(k,meta))return entrar(meta)}catch(e){}}
+  if(k){try{if(await verifica(k,meta)){await avisarServicio(k);return entrar(meta)}}catch(e){}}
   window.__meta=meta;
   $('st').hidden=true;$('f').hidden=false;
   }catch(e){paso('No pude abrir: '+(e&&e.message||e));$('rs').hidden=false;return}
@@ -95,12 +102,16 @@ async function entrar(meta){
   $('st').hidden=true;$('f').hidden=false;
   const go=async()=>{
     $('msg').textContent='';
+    let key;
     try{
-      const key=await derivar($('pw').value,meta);
+      key=await derivar($('pw').value,meta);
       if(!(await verifica(key,meta)))throw 0;
-      await guardarLlave(key);
-      $('f').hidden=true;$('st').hidden=false;entrar(meta);
-    }catch(e){$('msg').textContent='Clave incorrecta'}
+    }catch(e){$('msg').textContent='Clave incorrecta';return}
+    // Si el almacén falla, no es culpa de la clave: se sigue igual, con la
+    // clave en mano del servicio. Antes esto salía como «Clave incorrecta».
+    try{await guardarLlave(key)}catch(e){}
+    await avisarServicio(key);
+    $('f').hidden=true;$('st').hidden=false;entrar(meta);
   };
   $('go').onclick=go;$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
 })();

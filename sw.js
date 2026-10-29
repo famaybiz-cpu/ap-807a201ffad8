@@ -25,6 +25,11 @@ function idb() {
   });
 }
 let KEY = null;
+// La portada también manda la clave por mensaje: si el almacén del navegador
+// falla (en iPadOS a veces no guarda), con esto el servicio igual puede servir.
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.tipo === 'llave' && e.data.key) KEY = e.data.key;
+});
 async function llave() {
   if (KEY) return KEY;
   try {

@@ -49,6 +49,14 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding
   </div>
 
   <div class="panel">
+    <h2>Guardar la clave</h2>
+    <p class="sub">Si arriba dice que la clave NO está guardada, escríbela acá. Este botón la guarda y comprueba que de verdad quedó.</p>
+    <input id="pw2" type="password" placeholder="Tu clave" autocomplete="off" autocapitalize="none" spellcheck="false">
+    <button id="guardar">Guardar la clave y abrir la app</button>
+    <p class="sub" id="res2"></p>
+  </div>
+
+  <div class="panel">
     <h2>Tu progreso</h2>
     <p class="sub" id="prog">Mirando…</p>
     <input id="pw" type="password" placeholder="Tu clave" autocomplete="off" autocapitalize="none" spellcheck="false">
@@ -241,6 +249,51 @@ function progresoLocal() {
     ? 'Encontré ' + n + (n === 1 ? ' bloque guardado' : ' bloques guardados') + ' (' + tam + ').'
     : 'No encontré nada guardado de la app en este navegador.';
 })();
+
+async function guardarLlave(k) {
+  const db = await idb();
+  await new Promise((ok, no) => {
+    const t = db.transaction('k', 'readwrite');
+    t.objectStore('k').put(k, 'llave');
+    t.oncomplete = ok;
+    t.onerror = () => no(t.error || new Error('no se pudo escribir'));
+    t.onabort = () => no(t.error || new Error('escritura cancelada'));
+  });
+  db.close();
+}
+
+$('guardar').onclick = async () => {
+  const m = $('res2');
+  if (!META) { m.textContent = 'Todavía no cargó el índice del sitio. Espera unos segundos.'; return; }
+  m.textContent = 'Guardando…';
+  let key;
+  try {
+    key = await derivar($('pw2').value, META);
+    if (!(await verifica(key, META))) { m.textContent = 'Esa clave no es la correcta.'; return; }
+  } catch (e) { m.textContent = 'Esa clave no es la correcta.'; return; }
+
+  try { await guardarLlave(key); }
+  catch (e) { m.textContent = 'La clave es correcta, pero el iPad no la dejó guardar (' + e.message + '). Mándame este mensaje.'; return; }
+
+  const leida = await leerLlave();                   // comprobar que de verdad quedó
+  if (!leida) {
+    m.textContent = 'La clave es correcta, pero no se queda guardada en este iPad. Mándame este mensaje.';
+    return;
+  }
+  // Dársela también al servicio, por si no puede leer el almacén. Con tope de
+  // tiempo: si el servicio no arranca, `ready` no responde nunca y el botón se
+  // quedaría colgado en «Guardando…».
+  try {
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, no) => setTimeout(() => no(new Error('sin servicio')), 3000)),
+    ]);
+    const sw = reg.active || navigator.serviceWorker.controller;
+    if (sw) sw.postMessage({ tipo: 'llave', key: leida });
+  } catch (e) {}
+  m.textContent = 'Lista ✿ abriendo la app…';
+  setTimeout(() => location.replace('app/index.html'), 800);
+};
 
 $('bajar').onclick = async () => {
   if (!META) { alert('Todavía no cargó el índice del sitio. Espera unos segundos.'); return; }
