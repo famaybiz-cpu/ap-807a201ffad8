@@ -5,9 +5,20 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-9-video-drive';   // para saber en el informe qué versión corre
+const VERSION = 'sw-10-token-guardado';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
+// El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
+// permiso: el video se quedaba en «Cargando…». La página lo deja también en la
+// caché (que ambos comparten) y aquí se recupera de ahí.
+async function tokenGuardado() {
+  try {
+    const r = await (await caches.open('ti-drive')).match('/__drive__');
+    if (!r) return '';
+    const j = await r.json();
+    return j && j.t && j.hasta > Date.now() ? j.t : '';
+  } catch (e) { return ''; }
+}
 const fichas = new Map();       // id del archivo -> { size, mime }
 const MIME = {
   html: 'text/html;charset=utf-8', js: 'text/javascript;charset=utf-8', mjs: 'text/javascript;charset=utf-8',
@@ -48,7 +59,7 @@ async function pedirLlaveAlaPagina() {
 // página guardó en el almacén, así que hay que pasársela en mano.
 self.addEventListener('message', (e) => {
   const d = e.data || {};
-  if (d.tipo === 'tokenDrive') TOKEN = d.token || '';
+  if (d.tipo === 'tokenDrive') { TOKEN = d.token || ''; fichas.clear(); }
   if (d.tipo === 'llave' && d.key) {
     KEY = d.key;
     if (esperando) { esperando(d.key); esperando = null; }
@@ -132,8 +143,15 @@ async function fichaDrive(id) {
 }
 
 async function servirVideo(id, pedido) {
+  if (!TOKEN) TOKEN = await tokenGuardado();
   if (!TOKEN) return new Response('Sin permiso de Drive', { status: 401 });
-  const f = await fichaDrive(id);
+  let f;
+  try { f = await fichaDrive(id); }
+  catch (e) {                                   // quizá el permiso cambió: probar con el guardado
+    const t = await tokenGuardado();
+    if (!t || t === TOKEN) return new Response('Sin permiso de Drive', { status: 401 });
+    TOKEN = t; f = await fichaDrive(id);
+  }
   const m = (pedido.headers.get('range') || '').match(/bytes=(\d*)-(\d*)/);
   const total = f.size;
   let desde = m && m[1] ? +m[1] : 0;
@@ -143,7 +161,11 @@ async function servirVideo(id, pedido) {
     return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + total } });
   }
   const u = DRIVE + encodeURIComponent(id) + '?alt=media&supportsAllDrives=true&acknowledgeAbuse=true';
-  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } });
+  let r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } });
+  if (r.status === 401) {                       // venció: si la página ya renovó, seguir sin cortar
+    const t = await tokenGuardado();
+    if (t && t !== TOKEN) { TOKEN = t; r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } }); }
+  }
   if (!r.ok && r.status !== 206) {
     if (r.status === 401 || r.status === 403) {        // el permiso venció: que lo renueve la página
       const cs = await self.clients.matchAll({ type: 'window' });
