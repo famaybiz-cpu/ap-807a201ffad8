@@ -43,6 +43,21 @@ button{width:100%;padding:15px;border:0;border-radius:16px;background:linear-gra
   <button id="rs" hidden style="margin-top:12px;background:#fff;color:#b9577a;border:1px solid #efd9dd">Reiniciar y reintentar</button>
 </div>
 <script>
+// Vuelta de «Entrar sin ventanita» de las clases: Google trae el permiso en la
+// dirección. Se guarda (solo en este dispositivo) y, al abrir, se va directo a Clases.
+(function(){try{
+  if(location.hash.indexOf('access_token=')<0&&location.hash.indexOf('error=')<0)return;
+  const h=new URLSearchParams(location.hash.slice(1)),t=h.get('access_token');
+  const est=JSON.parse(localStorage.getItem('cl-estado')||'null');
+  if(t&&est&&h.get('state')===est){
+    localStorage.setItem('cl-tok',JSON.stringify({t:t,hasta:Date.now()+((+h.get('expires_in')||3600)-120)*1000}));
+    localStorage.removeItem('cl-estado');
+  }
+  sessionStorage.setItem('ti_destino',location.pathname+'app/reproductor/');
+  history.replaceState(null,'',location.pathname);
+}catch(e){}})();
+</script>
+<script>
 "use strict";
 const $=s=>document.getElementById(s);
 const paso=t=>{$('st').textContent=t};
