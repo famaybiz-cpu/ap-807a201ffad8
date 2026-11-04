@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-10-token-guardado';   // para saber en el informe qué versión corre
+const VERSION = 'sw-11-trozos-reintentos';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
 // El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
@@ -142,6 +142,24 @@ async function fichaDrive(id) {
   return f;
 }
 
+const TROZO = 6 * 1024 * 1024;
+
+/** Pide un trozo a Drive: si no contesta en 20 s o falla la red, reintenta hasta 3 veces. */
+async function pedirTrozo(u, desde, hasta) {
+  let r = null;
+  for (let i = 0; i < 3; i++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 20000);
+    try {
+      r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta }, signal: ac.signal });
+      clearTimeout(t);
+      if (r.ok || (r.status < 500 && r.status !== 429)) return r;
+    } catch (e) { clearTimeout(t); r = null; }
+    await new Promise((ok) => setTimeout(ok, 300 * (i + 1)));
+  }
+  return r;
+}
+
 async function servirVideo(id, pedido) {
   if (!TOKEN) TOKEN = await tokenGuardado();
   if (!TOKEN) return new Response('Sin permiso de Drive', { status: 401 });
@@ -160,12 +178,16 @@ async function servirVideo(id, pedido) {
   if (total && desde > hasta) {
     return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + total } });
   }
+  // Safari pide «bytes=0-» (todo el archivo). Dárselo entero ahogaba al iPad y a
+  // Drive: se entrega por trozos y Safari pide el siguiente cuando lo necesita.
+  if (hasta > desde + TROZO - 1) hasta = desde + TROZO - 1;
   const u = DRIVE + encodeURIComponent(id) + '?alt=media&supportsAllDrives=true&acknowledgeAbuse=true';
-  let r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } });
-  if (r.status === 401) {                       // venció: si la página ya renovó, seguir sin cortar
+  let r = await pedirTrozo(u, desde, hasta);
+  if (r && r.status === 401) {                  // venció: si la página ya renovó, seguir sin cortar
     const t = await tokenGuardado();
-    if (t && t !== TOKEN) { TOKEN = t; r = await fetch(u, { headers: { Authorization: 'Bearer ' + TOKEN, Range: 'bytes=' + desde + '-' + hasta } }); }
+    if (t && t !== TOKEN) { TOKEN = t; r = await pedirTrozo(u, desde, hasta); }
   }
+  if (!r) return new Response('Drive no respondió', { status: 504 });
   if (!r.ok && r.status !== 206) {
     if (r.status === 401 || r.status === 403) {        // el permiso venció: que lo renueve la página
       const cs = await self.clients.matchAll({ type: 'window' });
