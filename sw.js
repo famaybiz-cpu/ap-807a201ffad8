@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-13-sin-internet';   // para saber en el informe qué versión corre
+const VERSION = 'sw-14-red-lenta';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
 // El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
@@ -218,12 +218,16 @@ async function servirApp(path) {
   if (!key) return Response.redirect(SCOPE, 302);               // sin clave: pantalla de candado
   const url = SCOPE + 'e/' + (await nombre(path)) + '.bin';
   const cache = await caches.open(ENC);
-  let res = null;
-  try {
-    res = await fetch(url, { cache: 'reload' });                 // lo más nuevo primero
-    if (res.ok) cache.put(url, res.clone()); else res = null;
-  } catch { res = null; }
-  if (!res) res = await cache.match(url);                        // sin internet: lo guardado
+  // Lo más nuevo primero, pero si la red tarda más de 2,5 s (internet lento en viaje)
+  // se abre con lo guardado y la red sigue actualizando la copia por detrás.
+  const red = fetch(url, { cache: 'reload' })
+    .then((r) => { if (r.ok) { cache.put(url, r.clone()); return r; } return null; })
+    .catch(() => null);
+  const guardada = await cache.match(url);
+  let res = guardada
+    ? await Promise.race([red, new Promise((ok) => setTimeout(() => ok(null), 2500))])
+    : await red;
+  if (!res) res = guardada || (await cache.match(url));          // lenta o sin internet: lo guardado
   if (!res) return new Response('No encontrado', { status: 404 });
   const buf = new Uint8Array(await res.arrayBuffer());
   try {
@@ -236,13 +240,12 @@ async function servirApp(path) {
 
 async function redConRespaldo(request) {
   const cache = await caches.open(SHELL);
-  try {
-    const r = await fetch(request, { cache: 'reload' });
-    if (r.ok) cache.put(request, r.clone());
-    return r;
-  } catch {
-    return (await cache.match(request, { ignoreSearch: true })) || (await cache.match(SCOPE)) || Response.error();
-  }
+  const red = fetch(request, { cache: 'reload' })
+    .then((r) => { if (r.ok) cache.put(request, r.clone()); return r; })
+    .catch(() => null);
+  const guardada = await cache.match(request, { ignoreSearch: true });
+  const r = guardada ? await Promise.race([red, new Promise((ok) => setTimeout(() => ok(null), 2500))]) : await red;
+  return r || guardada || (await cache.match(SCOPE)) || Response.error();
 }
 
 self.addEventListener('fetch', (e) => {
