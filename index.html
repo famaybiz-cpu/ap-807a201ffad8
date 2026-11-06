@@ -116,11 +116,14 @@ async function entrar(meta){
   if(!navigator.serviceWorker.controller){
     await Promise.race([new Promise(r=>navigator.serviceWorker.addEventListener('controllerchange',r,{once:true})),new Promise(r=>setTimeout(r,4000))]);
   }
-  await con(Promise.all((meta.core||[]).map(p=>fetch('app/'+p).catch(()=>{}))),20000,'guardar para uso sin internet').catch(()=>{});
+  // Guardar lo básico para usar sin internet, sin hacer esperar: como mucho 3 s,
+  // y nunca los audios (pesan mucho; se guardan al escucharlos).
+  const core=(meta.core||[]).filter(p=>!/\.(m4a|mp3|wav)$/i.test(p));
+  if(!window.__lento)await con(Promise.all(core.map(p=>fetch('app/'+p).catch(()=>{}))),3000,'guardar para uso sin internet').catch(()=>{});
   // Última comprobación antes de abrir: que el servicio pueda descifrar de
   // verdad. Si no, avisar en vez de entrar en bucle.
   try{
-    const r=await con(fetch('app/index.html',{redirect:'manual'}),8000,'probar la app');
+    const r=await con(fetch('app/index.html',{redirect:'manual'}),4000,'probar la app');
     if(r.type==='opaqueredirect'||r.status===403){
       paso('Safari no le está pasando la clave al servicio. Abre la app en Chrome, o toca Reiniciar y reintentar.');
       $('rs').hidden=false;return;
@@ -144,9 +147,15 @@ try{navigator.serviceWorker.addEventListener('message',async e=>{
   try{
   if(!window.crypto||!crypto.subtle||!('serviceWorker' in navigator)){paso('Este navegador no es compatible (falta cifrado o service worker).');$('rs').hidden=false;return}
   paso('Abriendo… (1/4)');
-  const meta=await con(fetch('meta.json',{cache:'no-store'}).then(r=>r.json()),10000,'leer meta.json');
+  // Internet lento o ninguno: se usa la copia guardada de meta.json y no se espera a la red.
+  let meta=null,metaGuardada=null;
+  try{metaGuardada=JSON.parse(localStorage.getItem('ti_meta')||'null')}catch(e){}
+  try{meta=await con(fetch('meta.json',{cache:'no-store'}).then(r=>r.json()),metaGuardada?3000:15000,'leer meta.json');
+      try{localStorage.setItem('ti_meta',JSON.stringify(meta))}catch(e){}}
+  catch(e){if(!metaGuardada)throw e;meta=metaGuardada;window.__lento=1}
   paso('Abriendo… (2/4)');
-  await con(navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}),10000,'registrar el servicio');
+  try{await con(navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}),window.__lento?3000:10000,'registrar el servicio')}
+  catch(e){if(!navigator.serviceWorker.controller)throw e}
   await con(navigator.serviceWorker.ready,10000,'activar el servicio');
   paso('Abriendo… (3/4)');
   const k=await con(leerLlave(),5000,'leer la clave guardada');
