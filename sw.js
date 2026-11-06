@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-12-sin-trozos';   // para saber en el informe qué versión corre
+const VERSION = 'sw-13-sin-internet';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
 // El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
@@ -142,7 +142,35 @@ async function fichaDrive(id) {
   return f;
 }
 
+/** Video guardado en este aparato (Clases › «Sin internet»): partes de 16 MB en 'ti-videos'. */
+async function videoGuardado(id, pedido) {
+  try {
+    const c = await caches.open('ti-videos');
+    const mr = await c.match('/__vid__/' + id + '/meta');
+    if (!mr) return null;
+    const meta = await mr.json();
+    const total = meta.size;
+    const m = (pedido.headers.get('range') || '').match(/bytes=(\d*)-(\d*)/);
+    let desde = m && m[1] ? +m[1] : 0;
+    if (m && !m[1] && m[2]) desde = Math.max(0, total - +m[2]);
+    if (desde >= total) return new Response(null, { status: 416, headers: { 'Content-Range': 'bytes */' + total } });
+    const k = Math.floor(desde / meta.trozo);
+    const r = await c.match('/__vid__/' + id + '/' + k);
+    if (!r) return null;
+    const blob = await r.blob();
+    const base = k * meta.trozo;
+    let hasta = base + blob.size - 1;
+    if (m && m[1] && m[2]) hasta = Math.min(hasta, +m[2]);
+    const parte = blob.slice(desde - base, hasta - base + 1);
+    return new Response(parte, { status: 206, statusText: 'Partial Content', headers: {
+      'Content-Type': meta.mime || 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store',
+      'Content-Length': String(parte.size), 'Content-Range': 'bytes ' + desde + '-' + hasta + '/' + total } });
+  } catch (e) { return null; }
+}
+
 async function servirVideo(id, pedido) {
+  const guardado = await videoGuardado(id, pedido);
+  if (guardado) return guardado;
   if (!TOKEN) TOKEN = await tokenGuardado();
   if (!TOKEN) return new Response('Sin permiso de Drive', { status: 401 });
   let f;
