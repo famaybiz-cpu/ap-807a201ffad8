@@ -62,7 +62,7 @@ button{width:100%;padding:15px;border:0;border-radius:16px;background:linear-gra
 const $=s=>document.getElementById(s);
 const paso=t=>{$('st').textContent=t};
 const con=(p,ms,n)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(new Error('tiempo agotado en: '+n)),ms))]);
-async function reiniciar(){try{(await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());for(const k of await caches.keys())if(k.startsWith('ti-'))await caches.delete(k);
+async function reiniciar(){try{(await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister());for(const k of await caches.keys())if(k.startsWith('ti-')&&k!=='ti-videos')await caches.delete(k);
 // Esperar a que el borrado termine: si queda pendiente, puede llevarse por
 // delante la clave que se guarda justo después y la app no abre nunca.
 await new Promise(ok=>{const r=indexedDB.deleteDatabase('ti_llave');r.onsuccess=r.onerror=r.onblocked=ok;setTimeout(ok,1500)});
