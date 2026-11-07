@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-14-red-lenta';   // para saber en el informe qué versión corre
+const VERSION = 'sw-15-actualiza-por-detras';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
 // El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
@@ -213,7 +213,7 @@ async function servirVideo(id, pedido) {
   return new Response(r.body, { status: 206, statusText: 'Partial Content', headers: h });
 }
 
-async function servirApp(path) {
+async function servirApp(path, ev) {
   const key = await llave();
   if (!key) return Response.redirect(SCOPE, 302);               // sin clave: pantalla de candado
   const url = SCOPE + 'e/' + (await nombre(path)) + '.bin';
@@ -223,6 +223,7 @@ async function servirApp(path) {
   const red = fetch(url, { cache: 'reload' })
     .then((r) => { if (r.ok) { cache.put(url, r.clone()); return r; } return null; })
     .catch(() => null);
+  if (ev) ev.waitUntil(red);                                     // que la actualización termine aunque se abra con lo guardado
   const guardada = await cache.match(url);
   let res = guardada
     ? await Promise.race([red, new Promise((ok) => setTimeout(() => ok(null), 2500))])
@@ -238,11 +239,12 @@ async function servirApp(path) {
   }
 }
 
-async function redConRespaldo(request) {
+async function redConRespaldo(request, ev) {
   const cache = await caches.open(SHELL);
   const red = fetch(request, { cache: 'reload' })
     .then((r) => { if (r.ok) cache.put(request, r.clone()); return r; })
     .catch(() => null);
+  if (ev) ev.waitUntil(red);
   const guardada = await cache.match(request, { ignoreSearch: true });
   const r = guardada ? await Promise.race([red, new Promise((ok) => setTimeout(() => ok(null), 2500))]) : await red;
   return r || guardada || (await cache.match(SCOPE)) || Response.error();
@@ -263,8 +265,8 @@ self.addEventListener('fetch', (e) => {
   if (u.pathname.startsWith(APP)) {
     let path = decodeURIComponent(u.pathname.slice(APP.length));
     if (path === '' || path.endsWith('/')) path += 'index.html';
-    return e.respondWith(servirApp(path));
+    return e.respondWith(servirApp(path, e));
   }
   if (u.pathname.startsWith(SCOPE + 'e/')) return;              // los bloques los pide servirApp
-  e.respondWith(redConRespaldo(request));
+  e.respondWith(redConRespaldo(request, e));
 });
