@@ -134,6 +134,8 @@ async function entrar(meta){
   let destino='app/index.html';
   try{const d=sessionStorage.getItem('ti_destino');sessionStorage.removeItem('ti_destino');
       if(d&&d.indexOf('/app/')>-1)destino=d}catch(e){}
+  // Enlace directo a una app aparte: .../?abrir=mi-dia | anki-enam | interna
+  try{const a=new URLSearchParams(location.search).get('abrir');if(a&&/^[a-z0-9-]{2,30}$/.test(a))destino='app/'+a+'/'}catch(e){}
   location.replace(destino);
 }
 // El servicio puede quedarse sin la clave (lo reinician, o no la ve en el
