@@ -5,7 +5,7 @@ const SCOPE = new URL(self.registration.scope).pathname;       // /ti-xxxx/
 const APP = SCOPE + 'app/';
 const ENC = 'ti-enc-v1', SHELL = 'ti-shell-v1', LLAVE = 'ti-llave-v1';
 const RUTA_LLAVE = '/__llave__';
-const VERSION = 'sw-15-actualiza-por-detras';   // para saber en el informe qué versión corre
+const VERSION = 'sw-16-con-limite';   // para saber en el informe qué versión corre
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 let TOKEN = '';                 // permiso de Drive, lo manda el reproductor
 // El iPad apaga este servicio cuando está quieto y al volver se le olvidaba el
@@ -213,6 +213,13 @@ async function servirVideo(id, pedido) {
   return new Response(r.body, { status: 206, statusText: 'Partial Content', headers: h });
 }
 
+
+// fetch con límite: en Safari con mala señal un fetch puede quedarse colgado para siempre.
+function fetchT(url, opts, ms) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
+  return fetch(url, { ...opts, signal: ac.signal }).finally(() => clearTimeout(t));
+}
 async function servirApp(path, ev) {
   const key = await llave();
   if (!key) return Response.redirect(SCOPE, 302);               // sin clave: pantalla de candado
@@ -220,16 +227,17 @@ async function servirApp(path, ev) {
   const cache = await caches.open(ENC);
   // Lo más nuevo primero, pero si la red tarda más de 2,5 s (internet lento en viaje)
   // se abre con lo guardado y la red sigue actualizando la copia por detrás.
-  const red = fetch(url, { cache: 'reload' })
+  const intento = () => fetchT(url, { cache: 'reload' }, 15000)
     .then((r) => { if (r.ok) { cache.put(url, r.clone()); return r; } return null; })
     .catch(() => null);
+  const red = intento().then((r) => r || intento());          // un reintento si la red falló o tardó
   if (ev) ev.waitUntil(red);                                     // que la actualización termine aunque se abra con lo guardado
   const guardada = await cache.match(url);
   let res = guardada
     ? await Promise.race([red, new Promise((ok) => setTimeout(() => ok(null), 2500))])
     : await red;
   if (!res) res = guardada || (await cache.match(url));          // lenta o sin internet: lo guardado
-  if (!res) return new Response('No encontrado', { status: 404 });
+  if (!res) return new Response('<meta charset=utf-8><body style="font:16px -apple-system;padding:40px;text-align:center">No hay internet suficiente para abrir esto por primera vez. Conéctate a wifi y vuelve a intentarlo.</body>', { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   const buf = new Uint8Array(await res.arrayBuffer());
   try {
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
@@ -241,7 +249,7 @@ async function servirApp(path, ev) {
 
 async function redConRespaldo(request, ev) {
   const cache = await caches.open(SHELL);
-  const red = fetch(request, { cache: 'reload' })
+  const red = fetchT(request, { cache: 'reload' }, 15000)
     .then((r) => { if (r.ok) cache.put(request, r.clone()); return r; })
     .catch(() => null);
   if (ev) ev.waitUntil(red);
